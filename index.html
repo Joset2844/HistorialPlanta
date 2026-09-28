@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Historial de Planta</title>
+<meta name="theme-color" content="#2563eb">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Historial Planta">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+<style>
+:root{--bg:#f4f5f8;--card:#fff;--text:#12151a;--muted:#6b7280;--bd:#e5e7ec;--ac:#2563eb;--act:#fff;--chip:#eef2ff;--bad:#dc2626;--ok:#16a34a}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#181b21;--text:#e7e9ee;--muted:#98a0ac;--bd:#272b33;--ac:#4f8dff;--act:#0b0d10;--chip:#1b2237;--bad:#f87171;--ok:#4ade80}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding-top:env(safe-area-inset-top,0)}
+header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--bd);padding:10px 14px;display:flex;justify-content:space-between;align-items:center}
+h1{font-size:16px;margin:0}
+.wrap{max-width:900px;margin:0 auto;padding:12px 12px calc(40px + env(safe-area-inset-bottom,0))}
+button{font:inherit;border:0;border-radius:10px;padding:8px 12px;cursor:pointer;background:var(--chip);color:var(--text)}
+button.p,.on{background:var(--ac);color:var(--act);font-weight:600}
+input,select{font:inherit;padding:8px 10px;border-radius:10px;border:1px solid var(--bd);background:var(--card);color:var(--text);min-width:0}
+.bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px}
+.bar input[type=search]{flex:1;min-width:140px}
+.tabs{display:flex;gap:4px;margin-bottom:10px}.tabs button{flex:1}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:12px;margin-bottom:10px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:10px}
+.kpi{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:10px}
+.kpi b{display:block;font-size:20px;font-variant-numeric:tabular-nums}.kpi span{color:var(--muted);font-size:12px}
+h3{font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:0 0 8px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:6px 8px;border-bottom:1px solid var(--bd);text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:600;white-space:nowrap}th[data-k]{cursor:pointer}
+.n{text-align:right;font-variant-numeric:tabular-nums}
+.sc{overflow-x:auto}
+.row{display:flex;align-items:center;gap:8px;margin:5px 0;font-size:13px}
+.row .l{width:92px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .b{flex:1;height:8px;background:var(--chip);border-radius:4px;overflow:hidden}.row .b i{display:block;height:100%;background:var(--ac)}
+.row .v{width:96px;flex:none;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+details.card>summary{cursor:pointer;list-style:none}details.card>summary::-webkit-details-marker{display:none}
+.top{display:flex;justify-content:space-between;gap:8px}.top span,.m{color:var(--muted);font-size:12px}
+.tag{display:inline-block;background:var(--chip);color:var(--ac);font-size:11.5px;padding:2px 8px;border-radius:20px;margin:6px 6px 0 0;font-weight:600}
+.bd{margin-top:10px;border-top:1px solid var(--bd);padding-top:8px}.bd h4{margin:8px 0 2px;font-size:11px;color:var(--muted);text-transform:uppercase}
+.st{color:var(--muted);text-align:center;padding:24px 8px}.err{color:var(--bad)}
+.hidden{display:none!important}
+#login{max-width:340px;margin:14vh auto 0;padding:0 16px}#login input{width:100%;margin:6px 0}
+</style>
+</head>
+<body>
+<div id="login"><div class="card"><h2 style="margin-top:0">📊 Historial de Planta</h2>
+<input id="lu" placeholder="Usuario" autocomplete="username"><input id="lp" type="password" placeholder="Contraseña" autocomplete="current-password">
+<div class="err" id="le"></div><button class="p" id="lb" style="width:100%;margin-top:8px">Entrar</button></div></div>
+
+<div id="app" class="hidden">
+<header><h1>📊 Historial de Planta</h1><button id="out">Salir</button></header>
+<div class="wrap">
+<div class="bar">
+<input type="date" id="desde"><input type="date" id="hasta">
+<select id="tf"><option value="">Ambos turnos</option><option value="DIA">Día</option><option value="NOCHE">Noche</option></select>
+</div>
+<div class="bar" id="chips"><button data-r="7">7 d</button><button data-r="30" class="on">30 d</button><button data-r="90">90 d</button><button data-r="0">Todo</button>
+<input type="search" id="q" placeholder="Máquina, OP, producto, técnico, falla…"><button id="csv">⬇ CSV</button></div>
+<div class="tabs" id="tabs"><button data-t="res" class="on">Resumen</button><button data-t="tur">Turnos</button><button data-t="int">Intervenciones</button></div>
+<div id="sts" class="m" style="margin-bottom:8px"></div>
+<div id="view"></div>
+</div></div>
+
+<script>
+const URL_='https://skoksthbuyrhekfchmug.supabase.co',KEY='sb_publishable_fSLsBpAkdOTtzxaTwRUmWw_uDEGE5-3',DOM='planta.local',SK='hist_sesion';
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const nf=n=>Math.round(n||0).toLocaleString('es-ES');
+const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const fc=f=>{const p=String(f).split('-');return p.length==3?p[2]+'/'+p[1]+'/'+p[0]:f};
+const fdt=s=>new Date(s).toLocaleString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+const tipo=t=>String(t||'').toLowerCase().startsWith('n')?'NOCHE':'DIA';
+const sum=(a,k)=>a.reduce((s,x)=>s+(+x[k]||0),0);
+const pct=(m,t)=>t+m>0?(m/(t+m)*100).toFixed(1)+'%':'—';
+const AREA={vasos_envases:'Vasos y envases',papel_carton:'Papel y cartón'};
+let ses=null,turnos=[],ints=[],tab='res',sk='p',sd=-1,lim=80,ok={t:true,i:true};
+try{ses=JSON.parse(localStorage.getItem(SK)||'null')}catch(e){}
+const save=s=>{ses=s;try{s?localStorage.setItem(SK,JSON.stringify(s)):localStorage.removeItem(SK)}catch(e){}};
+
+/* ---------- Supabase (REST directo; misma sesión para ambos orígenes) ---------- */
+async function auth(gt,body){
+  const r=await fetch(URL_+'/auth/v1/token?grant_type='+gt,{method:'POST',headers:{apikey:KEY,'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();if(!r.ok)throw new Error(d.error_description||d.msg||'HTTP '+r.status);
+  save({at:d.access_token,rt:d.refresh_token,u:d.user.email.split('@')[0]});
+}
+async function api(p,schema,range,retry){
+  const h={apikey:KEY,Authorization:'Bearer '+(ses?ses.at:KEY),Range:range};
+  if(schema)h['Accept-Profile']=schema;
+  const r=await fetch(URL_+'/rest/v1/'+p,{headers:h,cache:'no-store'});
+  if(r.status===401&&ses&&!retry){try{await auth('refresh_token',{refresh_token:ses.rt})}catch(e){save(null);showLogin();throw new Error('Sesión vencida')}return api(p,schema,range,1)}
+  if(!r.ok)throw new Error(r.status+' '+(await r.text()).slice(0,120));
+  return r.json();
+}
+async function paged(p,schema){let out=[],f=0;for(;;){const r=await api(p,schema,f+'-'+(f+999));out.push(...r);if(r.length<1000)break;f+=1000}return out}
+
+/* ---------- Carga ---------- */
+function turnoDe(e){ // misma regla que la app de producción: DIA 07-18:59, NOCHE 19-06:59 (madrugada = fecha del día anterior)
+  const d=new Date(e.fecha),h=d.getHours(),t=e.turno?tipo(e.turno):(h>=7&&h<19?'DIA':'NOCHE'),b=new Date(d);
+  if(h<7)b.setDate(b.getDate()-1);return{f:iso(b),t};
+}
+async function cargar(){
+  const d=$('desde').value,h=$('hasta').value;if(!d||!h)return;
+  $('sts').textContent='Cargando…';
+  const a=new Date(d+'T07:00:00'),b=new Date(h+'T07:00:00');b.setDate(b.getDate()+1);
+  const [tr,ir]=await Promise.allSettled([
+    paged(`turnos?select=fecha,tipo,filas,created_by_email&fecha=gte.${d}&fecha=lte.${h}&order=fecha.desc,tipo.asc`),
+    paged(`intervenciones?select=id,fecha,turno,maquina,tecnico,falla,descripcion,calibrado,cambiado,revisado,otra_accion,repuestos,fotos&fecha=gte.${encodeURIComponent(a.toISOString())}&fecha=lt.${encodeURIComponent(b.toISOString())}&order=fecha.desc`,'intervenciones')]);
+  ok={t:tr.status==='fulfilled',i:ir.status==='fulfilled'};
+  turnos=ok.t?tr.value:[];ints=ok.i?ir.value.map(e=>({...e,ft:turnoDe(e)})):[];
+  const errs=[];if(!ok.t)errs.push('Turnos: '+tr.reason.message);if(!ok.i)errs.push('Intervenciones: '+ir.reason.message);
+  $('sts').innerHTML=errs.length?'<span class="err">'+esc(errs.join(' · '))+'</span>':'';
+  lim=80;render();
+}
+
+/* ---------- Filtros y métricas ---------- */
+function calc(){
+  const q=$('q').value.trim().toLowerCase(),tf=$('tf').value;
+  const T=[];
+  turnos.forEach(r=>{
+    if(tf&&tipo(r.tipo)!==tf)return;
+    const fl=(r.filas||[]).filter(f=>!q||[f.maquina,f.op,f.producto,f.observaciones].join(' ').toLowerCase().includes(q));
+    if(fl.length||!q)T.push({...r,fl,tot:sum(fl,'total'),mer:sum(fl,'merma')});
+  });
+  const I=ints.filter(e=>(!tf||e.ft.t===tf)&&(!q||[e.maquina,e.tecnico,e.falla,e.descripcion,e.repuestos].join(' ').toLowerCase().includes(q)));
+  return{T,I};
+}
+function bars(items){ // items: [label,value,text]
+  const mx=Math.max(1,...items.map(x=>x[1]));
+  return items.map(x=>`<div class="row"><span class="l" title="${esc(x[0])}">${esc(x[0])}</span><span class="b"><i style="width:${x[1]/mx*100}%"></i></span><span class="v">${x[2]}</span></div>`).join('')||'<div class="m">Sin datos</div>';
+}
+function maquinas(T,I){
+  const M={};const g=n=>{const k=String(n||'').trim().toUpperCase()||'(SIN MÁQUINA)';return M[k]||(M[k]={n:String(n||'').trim()||'(sin máquina)',p:0,m:0,i:0})};
+  T.forEach(r=>r.fl.forEach(f=>{const x=g(f.maquina);x.p+=+f.total||0;x.m+=+f.merma||0}));
+  I.forEach(e=>g(e.maquina).i++);
+  return Object.values(M);
+}
+function vResumen(T,I){
+  const tot=sum(T,'tot'),mer=sum(T,'mer'),M=maquinas(T,I);
+  const kp=[[nf(T.length),'turnos'],[nf(tot),'unidades producidas'],[nf(mer),'merma'],[pct(mer,tot),'% merma'],[nf(I.length),'intervenciones'],[nf(M.filter(m=>m.i).length),'máquinas intervenidas']];
+  let h='<div class="kpis">'+kp.map(k=>`<div class="kpi"><b>${k[0]}</b><span>${k[1]}</span></div>`).join('')+'</div>';
+  if(!ok.t)h+='<div class="card err">No se pudo leer el historial de turnos: las métricas de producción están vacías.</div>';
+  if(!ok.i)h+='<div class="card err">No se pudo leer intervenciones: las métricas de intervención están vacías.</div>';
+  const tt=['DIA','NOCHE'].map(t=>{const a=T.filter(r=>tipo(r.tipo)===t);return[t==='DIA'?'Día':'Noche',sum(a,'tot'),nf(sum(a,'tot'))+' u · '+I.filter(e=>e.ft.t===t).length+' int.']});
+  const ar={};T.forEach(r=>r.fl.forEach(f=>{const k=AREA[f.area]||'Sin área';ar[k]=(ar[k]||0)+(+f.total||0)}));
+  h+=`<div class="card"><h3>Por turno</h3>${bars(tt)}<h3 style="margin-top:14px">Por área (producción)</h3>${bars(Object.entries(ar).sort((a,b)=>b[1]-a[1]).map(x=>[x[0],x[1],nf(x[1])+' u']))}</div>`;
+  const dias={};T.forEach(r=>{(dias[r.fecha]=dias[r.fecha]||{p:0,i:0}).p+=r.tot});I.forEach(e=>{(dias[e.ft.f]=dias[e.ft.f]||{p:0,i:0}).i++});
+  h+=`<div class="card"><h3>Por día</h3>${bars(Object.entries(dias).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,45).map(x=>[fc(x[0]),x[1].p,nf(x[1].p)+' u · '+x[1].i+' int.']))}</div>`;
+  const te={};I.forEach(e=>{const k=(e.tecnico||'—').trim()||'—';te[k]=(te[k]||0)+1});
+  h+=`<div class="card"><h3>Intervenciones por técnico</h3>${bars(Object.entries(te).sort((a,b)=>b[1]-a[1]).slice(0,15).map(x=>[x[0],x[1],x[1]]))}</div>`;
+  M.forEach(m=>m.pm=m.p+m.m>0?m.m/(m.p+m.m):0);
+  const key={n:'n',p:'p',m:'m',pm:'pm',i:'i'}[sk];
+  M.sort((a,b)=>(typeof a[key]==='string'?a[key].localeCompare(b[key],'es',{numeric:true}):a[key]-b[key])*sd*-1);
+  const th=(k,l,c)=>`<th data-k="${k}" class="${c||''}">${l}${sk===k?(sd<0?' ▼':' ▲'):''}</th>`;
+  h+=`<div class="card"><h3>Por máquina (toca el título para ordenar)</h3><div class="sc"><table><thead><tr>${th('n','Máquina')}${th('p','Prod.','n')}${th('m','Merma','n')}${th('pm','% merma','n')}${th('i','Interv.','n')}</tr></thead><tbody>`
+   +M.map(m=>`<tr><td>${esc(m.n)}</td><td class="n">${nf(m.p)}</td><td class="n">${nf(m.m)}</td><td class="n">${pct(m.m,m.p)}</td><td class="n">${m.i||''}</td></tr>`).join('')+'</tbody></table></div></div>';
+  return h;
+}
+function vTurnos(T){
+  if(!T.length)return'<div class="st">Sin turnos en el rango.</div>';
+  let h=T.slice(0,lim).map(r=>`<details class="card"><summary><div class="top"><b>${fc(r.fecha)} · ${tipo(r.tipo)==='NOCHE'?'Noche':'Día'}</b><span>${nf(r.tot)} u · merma ${nf(r.mer)}</span></div><div class="m">${r.fl.length} filas · ${esc((r.created_by_email||'').split('@')[0]||'—')}</div></summary>
+  <div class="bd sc"><table><thead><tr><th>Máquina</th><th>OP</th><th>Producto</th><th class="n">Total</th><th class="n">Merma</th><th>Obs.</th></tr></thead><tbody>`
+  +r.fl.map(f=>`<tr><td>${esc(f.maquina)}</td><td>${esc(f.op||'—')}</td><td>${esc(f.producto||'—')}</td><td class="n">${nf(f.total)}</td><td class="n">${nf(f.merma)}</td><td>${esc(f.observaciones||'')}</td></tr>`).join('')
+  +'</tbody></table></div></details>').join('');
+  return h+more(T.length);
+}
+function acciones(e){return[e.calibrado&&'Calibración',e.cambiado&&'Cambio',e.revisado&&'Revisión',e.otra_accion&&'Otra: '+e.otra_accion].filter(Boolean)}
+function vInts(I){
+  if(!I.length)return'<div class="st">Sin intervenciones en el rango.</div>';
+  return I.slice(0,lim).map(e=>`<details class="card"><summary><div class="top"><b>${esc(e.maquina||'(sin máquina)')}</b><span>${fdt(e.fecha)}</span></div>
+  <div class="m">${esc(e.tecnico||'—')} · turno ${e.ft.t==='NOCHE'?'noche':'día'} del ${fc(e.ft.f)}</div>${acciones(e).map(a=>`<span class="tag">${esc(a)}</span>`).join('')}${(e.fotos||[]).length?`<span class="tag">📷 ${e.fotos.length}</span>`:''}</summary>
+  <div class="bd"><h4>Falla</h4>${esc(e.falla)||'—'}<h4>Descripción</h4>${esc(e.descripcion)||'—'}<h4>Repuestos</h4>${esc(e.repuestos)||'—'}</div></details>`).join('')+more(I.length);
+}
+const more=n=>n>lim?`<button id="more" style="width:100%">Ver más (${n-lim} restantes)</button>`:'';
+function render(){
+  const{T,I}=calc();
+  $('view').innerHTML=tab==='res'?vResumen(T,I):tab==='tur'?vTurnos(T):vInts(I);
+  $('tabs').querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.t===tab));
+}
+
+/* ---------- CSV ---------- */
+function csv(){
+  const{T,I}=calc();let rows;
+  if(tab==='res'){rows=[['Máquina','Producción','Merma','% merma','Intervenciones']].concat(maquinas(T,I).map(m=>[m.n,m.p,m.m,pct(m.m,m.p),m.i]))}
+  else if(tab==='tur'){rows=[['Fecha','Turno','Máquina','OP','Producto','Total','Merma','Observaciones']];T.forEach(r=>r.fl.forEach(f=>rows.push([r.fecha,tipo(r.tipo),f.maquina,f.op,f.producto,f.total,f.merma,f.observaciones])))}
+  else{rows=[['Fecha y hora','Fecha de turno','Turno','Máquina','Técnico','Acciones','Falla','Descripción','Repuestos']].concat(I.map(e=>[e.fecha,e.ft.f,e.ft.t,e.maquina,e.tecnico,acciones(e).join(' / '),e.falla,e.descripcion,e.repuestos]))}
+  const c=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""').replace(/\r?\n/g,' ')+'"').join(';')).join('\r\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+c],{type:'text/csv'}));
+  a.download='historial_'+tab+'_'+$('desde').value+'_'+$('hasta').value+'.csv';a.click();
+}
+
+/* ---------- Eventos ---------- */
+function rango(d){const h=new Date(),a=new Date();a.setDate(a.getDate()-(d||3650));$('desde').value=iso(a);$('hasta').value=iso(h)}
+function showLogin(){$('login').classList.remove('hidden');$('app').classList.add('hidden')}
+function showApp(){$('login').classList.add('hidden');$('app').classList.remove('hidden');if(!$('desde').value)rango(30);cargar()}
+$('lb').onclick=async()=>{
+  $('le').textContent='';const u=$('lu').value.trim().toLowerCase().replace(/\s+/g,'');
+  if(!u){$('le').textContent='Escribe tu usuario.';return}
+  try{await auth('password',{email:u+'@'+DOM,password:$('lp').value});showApp()}catch(e){$('le').textContent='No se pudo iniciar sesión: revisa usuario y contraseña.'}
+};
+$('lp').onkeydown=e=>{if(e.key==='Enter')$('lb').click()};
+$('out').onclick=()=>{save(null);turnos=[];ints=[];showLogin()};
+$('chips').onclick=e=>{const b=e.target.closest('button[data-r]');if(!b)return;$('chips').querySelectorAll('[data-r]').forEach(x=>x.classList.toggle('on',x===b));rango(+b.dataset.r);cargar()};
+$('desde').onchange=$('hasta').onchange=()=>{$('chips').querySelectorAll('[data-r]').forEach(x=>x.classList.remove('on'));cargar()};
+$('tf').onchange=()=>{lim=80;render()};
+$('q').oninput=()=>{lim=80;render()};
+$('tabs').onclick=e=>{const b=e.target.closest('button');if(b){tab=b.dataset.t;lim=80;render()}};
+$('csv').onclick=csv;
+$('view').onclick=e=>{
+  if(e.target.id==='more'){lim+=80;render()}
+  const th=e.target.closest('th[data-k]');
+  if(th){const k=th.dataset.k;if(sk===k)sd*=-1;else{sk=k;sd=k==='n'?1:-1}render()}
+};
+if(ses)showApp();
+</script>
+
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .catch(err => console.warn('Service Worker:', err));
+  });
+}
+</script>
+
+</body>
+</html>
