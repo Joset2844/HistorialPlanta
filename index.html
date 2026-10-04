@@ -74,7 +74,23 @@ const tipo=t=>String(t||'').toLowerCase().startsWith('n')?'NOCHE':'DIA';
 const sum=(a,k)=>a.reduce((s,x)=>s+(+x[k]||0),0);
 const pct=(m,t)=>t+m>0?(m/(t+m)*100).toFixed(1)+'%':'—';
 const AREA={vasos_envases:'Vasos y envases',papel_carton:'Papel y cartón'};
-let ses=null,turnos=[],ints=[],tab='res',sk='p',sd=-1,lim=80,ok={t:true,i:true};
+const CAT_MAQ_URL='https://docs.google.com/spreadsheets/d/e/2PACX-1vTVxCxG3XBMgSSedTqw7xWb7s7qxbYB3ZavS8MP9bx2lrwkzlK8oNQRSoFLw_sjjY68b1V0vNUaCb7B/pub?gid=770560989&single=true&output=csv';
+let ses=null,turnos=[],ints=[],tab='res',sk='p',sd=-1,lim=80,ok={t:true,i:true},MAQ_TIPO={},catCargado=false;
+function normMaq(s){return String(s||'').trim().toUpperCase()}
+async function cargarCatalogoMaquinas(){
+  if(catCargado)return;
+  try{
+    const r=await fetch(CAT_MAQ_URL,{cache:'no-store'});if(!r.ok)throw 0;
+    const txt=await r.text();
+    txt.split(/\r?\n/).slice(1).forEach(line=>{
+      if(!line.trim())return;const c=line.split(',');
+      const maq=c[0],tp=(c[2]||'').trim().toUpperCase();
+      if(maq&&tp)MAQ_TIPO[normMaq(maq)]=tp;
+    });
+    catCargado=true;
+  }catch(e){/* si falla, se exporta todo como "Sin clasificar" */}
+}
+function tipoDeMaquina(m){return MAQ_TIPO[normMaq(m)]||'SIN CLASIFICAR'}
 try{ses=JSON.parse(localStorage.getItem(SK)||'null')}catch(e){}
 const save=s=>{ses=s;try{s?localStorage.setItem(SK,JSON.stringify(s)):localStorage.removeItem(SK)}catch(e){}};
 
@@ -214,18 +230,7 @@ function descargarXls(xml,nombre){
   const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=nombre;document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(u),4000);
 }
-function exportOP(){
-  const q=$('q').value.trim();
-  if(!q){$('sts').innerHTML='<span class="err">Escribe una OP (o parte de ella) en el buscador antes de exportar.</span>';return}
-  const tf=$('tf').value,ql=q.toLowerCase();
-  const filas=[]; // filas de todos los turnos del rango cuya OP coincide con la búsqueda
-  turnos.forEach(r=>{
-    if(tf&&tipo(r.tipo)!==tf)return;
-    (r.filas||[]).forEach(f=>{ if(String(f.op||'').toLowerCase().includes(ql)) filas.push({...f,fecha:r.fecha,tipo:tipo(r.tipo)}); });
-  });
-  if(!filas.length){$('sts').innerHTML='<span class="err">Ninguna fila del rango tiene una OP que coincida con "'+esc(q)+'".</span>';return}
-
-  // Agrupar por modelo (producto); dentro de cada modelo, por fecha + turno
+function agruparModelos(filas){
   const MOD={};const ordenMod=[];
   filas.forEach(f=>{
     const mk=f.producto||'(sin producto)';
@@ -237,36 +242,70 @@ function exportOP(){
     const D=M.dias[dk];D.total+=+f.total||0;D.merma+=+f.merma||0;if(f.maquina)D.maquinas.add(f.maquina);if(f.op)D.ops.add(f.op);
     if(!ordenMod.includes(mk))ordenMod.push(mk);
   });
-  const modelos=ordenMod.map(k=>MOD[k]).sort((a,b)=>b.total-a.total);
-  const totG=sum(modelos,'total'),merG=sum(modelos,'merma');
-
-  // Hoja 1: Consolidado por modelo, con fechas de producción y totales
-  const r1=[filaTX('CONSOLIDADO DE PRODUCCIÓN POR OP — filtro: "'+q+'"'+(tf?' · Turno '+tf:'')+' · '+fc($('desde').value)+' a '+fc($('hasta').value),6)];
+  return ordenMod.map(k=>MOD[k]).sort((a,b)=>b.total-a.total);
+}
+function filasModelosXml(modelos){
+  const totG=sum(modelos,'total'),merG=sum(modelos,'merma'),rows=[];
   modelos.forEach(M=>{
-    r1.push(filaMX(M.producto+(M.sap?' — SAP '+M.sap:'')+' — OP: '+[...M.ops].join(', ')+'  ·  Total: '+nf(M.total)+' u  ·  Merma: '+nf(M.merma)+' u',6));
-    r1.push(filaHX(['Fecha','Turno','Máquina(s)','OP','Total producido','Merma']));
+    rows.push(filaMX(M.producto+(M.sap?' — SAP '+M.sap:'')+' — OP: '+[...M.ops].join(', ')+'  ·  Total: '+nf(M.total)+' u  ·  Merma: '+nf(M.merma)+' u',6));
+    rows.push(filaHX(['Fecha','Turno','Máquina(s)','OP','Total producido','Merma']));
     M.ordenDias.sort((a,b)=>a.localeCompare(b)).map(k=>M.dias[k]).forEach(D=>{
-      r1.push('<Row>'+ceX(fc(D.fecha),'sK')+ceX(D.turno==='NOCHE'?'Noche':'Día','sK')+ceX([...D.maquinas].join(', '),'sC')+ceX([...D.ops].join(', '),'sK')+ceX(D.total,'sN',true)+ceX(D.merma,'sN',true)+'</Row>');
+      rows.push('<Row>'+ceX(fc(D.fecha),'sK')+ceX(D.turno==='NOCHE'?'Noche':'Día','sK')+ceX([...D.maquinas].join(', '),'sC')+ceX([...D.ops].join(', '),'sK')+ceX(D.total,'sN',true)+ceX(D.merma,'sN',true)+'</Row>');
     });
-    r1.push('<Row>'+ceX('Subtotal '+M.producto,'sE2',false,3)+ceX(M.total,'sE',true)+ceX(M.merma,'sE',true)+'</Row>');
+    rows.push('<Row>'+ceX('Subtotal '+M.producto,'sE2',false,3)+ceX(M.total,'sE',true)+ceX(M.merma,'sE',true)+'</Row>');
   });
-  r1.push('<Row>'+ceX('TOTAL GENERAL','sTg2',false,3)+ceX(totG,'sTg',true)+ceX(merG,'sTg',true)+'</Row>');
+  rows.push('<Row>'+ceX('TOTAL GENERAL','sTg2',false,3)+ceX(totG,'sTg',true)+ceX(merG,'sTg',true)+'</Row>');
+  return{rows,totG,merG};
+}
+async function exportOP(){
+  const q=$('q').value.trim();
+  if(!q){$('sts').innerHTML='<span class="err">Escribe una OP (o parte de ella) en el buscador antes de exportar.</span>';return}
+  await cargarCatalogoMaquinas();
+  const tf=$('tf').value,ql=q.toLowerCase();
+  const filas=[]; // filas de todos los turnos del rango cuya OP coincide con la búsqueda
+  turnos.forEach(r=>{
+    if(tf&&tipo(r.tipo)!==tf)return;
+    (r.filas||[]).forEach(f=>{ if(String(f.op||'').toLowerCase().includes(ql)) filas.push({...f,fecha:r.fecha,tipo:tipo(r.tipo),claseMaq:tipoDeMaquina(f.maquina)}); });
+  });
+  if(!filas.length){$('sts').innerHTML='<span class="err">Ninguna fila del rango tiene una OP que coincida con "'+esc(q)+'".</span>';return}
 
-  // Hoja 2: detalle fila por fila
-  const r2=[filaTX('DETALLE DE PRODUCCIÓN — filtro: "'+q+'"',9),filaHX(['Fecha','Turno','Máquina','OP','Producto','SAP','Total','Merma','Observaciones'])];
-  filas.sort((a,b)=>a.fecha.localeCompare(b.fecha)).forEach(f=>{
-    r2.push('<Row>'+ceX(fc(f.fecha),'sK')+ceX(f.tipo==='NOCHE'?'Noche':'Día','sK')+ceX(f.maquina||'','sC')+ceX(f.op||'','sK')+ceX(f.producto||'','sC')+ceX(f.sap||'','sK')+ceX(+f.total||0,'sN',true)+ceX(+f.merma||0,'sN',true)+ceX(f.observaciones||'','sC')+'</Row>');
+  // Separar PT / PP (y lo que no esté en el catálogo de máquinas) según la 3.ª columna del catálogo
+  const clases=['PT','PP'].filter(c=>filas.some(f=>f.claseMaq===c));
+  if(filas.some(f=>f.claseMaq==='SIN CLASIFICAR'))clases.push('SIN CLASIFICAR');
+  const titulo='filtro: "'+q+'"'+(tf?' · Turno '+tf:'')+' · '+fc($('desde').value)+' a '+fc($('hasta').value);
+
+  // Hoja Resumen: PT vs PP
+  const rr=[filaTX('RESUMEN POR TIPO DE PRODUCCIÓN — '+titulo,3),filaHX(['Tipo','Total producido','Merma'])];
+  let totGeneral=0,merGeneral=0;
+  clases.forEach(c=>{const fc_=filas.filter(f=>f.claseMaq===c),t=sum(fc_,'total'),m=sum(fc_,'merma');totGeneral+=t;merGeneral+=m;
+    rr.push('<Row>'+ceX(c==='SIN CLASIFICAR'?'Sin clasificar (no está en el catálogo de máquinas)':c,'sK')+ceX(t,'sN',true)+ceX(m,'sN',true)+'</Row>');});
+  rr.push('<Row>'+ceX('TOTAL GENERAL','sTg2')+ceX(totGeneral,'sTg',true)+ceX(merGeneral,'sTg',true)+'</Row>');
+
+  const hojas=[hojaXmlX('Resumen',[220,140,110],rr)];
+  clases.forEach(c=>{
+    const fc_=filas.filter(f=>f.claseMaq===c);
+    const modelos=agruparModelos(fc_);
+    const{rows}=filasModelosXml(modelos);
+    const nombre=c==='SIN CLASIFICAR'?'Sin clasificar':c;
+    hojas.push(hojaXmlX(nombre,[85,70,220,120,110,90],[filaTX((c==='SIN CLASIFICAR'?'SIN CLASIFICAR':'PRODUCCIÓN '+c)+' — '+titulo,6),...rows]));
   });
+
+  // Última hoja: detalle fila por fila (todas las clases)
+  const r2=[filaTX('DETALLE DE PRODUCCIÓN — '+titulo,10),filaHX(['Fecha','Turno','Tipo','Máquina','OP','Producto','SAP','Total','Merma','Observaciones'])];
+  filas.sort((a,b)=>a.fecha.localeCompare(b.fecha)).forEach(f=>{
+    r2.push('<Row>'+ceX(fc(f.fecha),'sK')+ceX(f.tipo==='NOCHE'?'Noche':'Día','sK')+ceX(f.claseMaq,'sK')+ceX(f.maquina||'','sC')+ceX(f.op||'','sK')+ceX(f.producto||'','sC')+ceX(f.sap||'','sK')+ceX(+f.total||0,'sN',true)+ceX(+f.merma||0,'sN',true)+ceX(f.observaciones||'','sC')+'</Row>');
+  });
+  hojas.push(hojaXmlX('Detalle',[85,70,95,160,110,260,90,80,80,260],r2));
 
   const xml='<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet" xmlns:html="http://www.w3.org/TR/REC-html40">'
-    +ESTILOSX+hojaXmlX('Consolidado',[85,70,220,120,110,90],r1)+hojaXmlX('Detalle',[85,70,160,110,260,90,80,80,260],r2)+'</Workbook>';
+    +ESTILOSX+hojas.join('')+'</Workbook>';
   descargarXls(xml,'consolidado_OP_'+q.replace(/[^a-z0-9]+/gi,'_')+'_'+$('desde').value+'_'+$('hasta').value+'.xls');
 }
 
 /* ---------- Eventos ---------- */
 function rango(d){const h=new Date(),a=new Date();a.setDate(a.getDate()-(d||3650));$('desde').value=iso(a);$('hasta').value=iso(h)}
 function showLogin(){$('login').classList.remove('hidden');$('app').classList.add('hidden')}
-function showApp(){$('login').classList.add('hidden');$('app').classList.remove('hidden');if(!$('desde').value)rango(30);cargar()}
+function showApp(){$('login').classList.add('hidden');$('app').classList.remove('hidden');if(!$('desde').value)rango(30);cargarCatalogoMaquinas();cargar()}
 $('lb').onclick=async()=>{
   $('le').textContent='';const u=$('lu').value.trim().toLowerCase().replace(/\s+/g,'');
   if(!u){$('le').textContent='Escribe tu usuario.';return}
