@@ -75,20 +75,74 @@ const sum=(a,k)=>a.reduce((s,x)=>s+(+x[k]||0),0);
 const pct=(m,t)=>t+m>0?(m/(t+m)*100).toFixed(1)+'%':'—';
 const AREA={vasos_envases:'Vasos y envases',papel_carton:'Papel y cartón'};
 const CAT_MAQ_URL='https://docs.google.com/spreadsheets/d/e/2PACX-1vTVxCxG3XBMgSSedTqw7xWb7s7qxbYB3ZavS8MP9bx2lrwkzlK8oNQRSoFLw_sjjY68b1V0vNUaCb7B/pub?gid=770560989&single=true&output=csv';
-let ses=null,turnos=[],ints=[],tab='res',sk='p',sd=-1,lim=80,ok={t:true,i:true},MAQ_TIPO={},catCargado=false;
+// Respaldo incrustado del catálogo (3.ª columna = TIPO), por si el navegador no puede descargar la hoja en vivo (CORS/red).
+const CAT_MAQ_FALLBACK_CSV=`MAQUINA,CODIGO,TIPO,AREA
+ALQ - MFTP1L-1,95,PT,V
+EM,14,PT,P
+EM1,84,PT,P
+EM2,91,PT,P
+EMBJE.,67,PT,
+GP-139,27,PP,P
+KOMORI GL540,15,PP,P
+MFB-R,37,PT,V
+MFB-S,42,PT,V
+MFC-M,98,PT,V
+MFDP-2,115,PT,V
+MFDP-D,100,PT,V
+MFE0.5B-M,110,PT,V
+MFE0.5C,43,PT,V
+MFE0.5-D,101,PT,V
+MFE0.5D-2,116,PT,V
+MFE0.9 (1N),73,PT,V
+MFE0.9-D,102,PT,V
+MFE180R,38,PT,V
+MFELP,54,PT,V
+MFELR,41,PT,V
+MFT110Ml,78,PT,V
+MFT3.5 -4.5 CPL,111,PT,V
+MFT4.5-8,57,PT,V
+MFT4.5-8 N,99,PT,V
+MFTC2,59,PT,V
+MFTP,56,PT,V
+MFTP0.5LT,26,PT,V
+MFTP0.5LT -1,75,PT,V
+MFTP0.9M,113,PT,V
+MFTP1L,34,PT,V
+MFTPH,10,PT,V
+MFTV,49,PT,V
+MFV12D,31,PT,V
+MFV16,40,PT,V
+MFV20,88,PT,V
+MFV21,17,PT,V
+MFV32,86,PT,V
+MFVV,30,PT,V
+MSTAIC1,60,PT,V
+MTT2,64,PT,V
+PBOBST,3,PT,P
+Plastificadora1,82,PP,P
+PM,65,PT,
+PYOUTIAN,108,PT,P
+TBRS,52,PP,P
+TBRS ETERNA,112,PP,P`;
+let ses=null,turnos=[],ints=[],tab='res',sk='p',sd=-1,lim=80,ok={t:true,i:true},MAQ_TIPO={},catEstado='';
 function normMaq(s){return String(s||'').trim().toUpperCase()}
-async function cargarCatalogoMaquinas(){
-  if(catCargado)return;
+function parseCatalogoCsv(txt){
+  const map={};
+  txt.split(/\r?\n/).slice(1).forEach(line=>{
+    if(!line.trim())return;const c=line.split(',');
+    const maq=c[0],tp=(c[2]||'').trim().toUpperCase();
+    if(maq&&tp)map[normMaq(maq)]=tp;
+  });
+  return map;
+}
+MAQ_TIPO=parseCatalogoCsv(CAT_MAQ_FALLBACK_CSV);catEstado='Clasificación PP/PT: usando catálogo incrustado (respaldo).';
+async function cargarCatalogoMaquinas(force){
   try{
-    const r=await fetch(CAT_MAQ_URL,{cache:'no-store'});if(!r.ok)throw 0;
-    const txt=await r.text();
-    txt.split(/\r?\n/).slice(1).forEach(line=>{
-      if(!line.trim())return;const c=line.split(',');
-      const maq=c[0],tp=(c[2]||'').trim().toUpperCase();
-      if(maq&&tp)MAQ_TIPO[normMaq(maq)]=tp;
-    });
-    catCargado=true;
-  }catch(e){/* si falla, se exporta todo como "Sin clasificar" */}
+    const r=await fetch(CAT_MAQ_URL+'&_='+Date.now(),{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);
+    const txt=await r.text();const m=parseCatalogoCsv(txt);
+    if(!Object.keys(m).length)throw new Error('vacío');
+    MAQ_TIPO=m;catEstado='Clasificación PP/PT: catálogo actualizado en línea ('+Object.keys(m).length+' máquinas).';
+  }catch(e){ if(!force) catEstado='Clasificación PP/PT: no se pudo actualizar el catálogo en línea (usando el respaldo incrustado). '+e.message; }
 }
 function tipoDeMaquina(m){return MAQ_TIPO[normMaq(m)]||'SIN CLASIFICAR'}
 try{ses=JSON.parse(localStorage.getItem(SK)||'null')}catch(e){}
@@ -275,6 +329,7 @@ async function exportOP(){
   const titulo='filtro: "'+q+'"'+(tf?' · Turno '+tf:'')+' · '+fc($('desde').value)+' a '+fc($('hasta').value);
 
   // Hoja Resumen: PT vs PP
+  const sinClas=[...new Set(filas.filter(f=>f.claseMaq==='SIN CLASIFICAR').map(f=>f.maquina||'(sin máquina)'))];
   const rr=[filaTX('RESUMEN POR TIPO DE PRODUCCIÓN — '+titulo,3),filaHX(['Tipo','Total producido','Merma'])];
   let totGeneral=0,merGeneral=0;
   clases.forEach(c=>{const fc_=filas.filter(f=>f.claseMaq===c),t=sum(fc_,'total'),m=sum(fc_,'merma');totGeneral+=t;merGeneral+=m;
@@ -300,6 +355,7 @@ async function exportOP(){
   const xml='<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet" xmlns:html="http://www.w3.org/TR/REC-html40">'
     +ESTILOSX+hojas.join('')+'</Workbook>';
   descargarXls(xml,'consolidado_OP_'+q.replace(/[^a-z0-9]+/gi,'_')+'_'+$('desde').value+'_'+$('hasta').value+'.xls');
+  $('sts').innerHTML=catEstado+(sinClas.length?' · <span class="err">Sin clasificar: '+esc(sinClas.join(', '))+' (revisa que el nombre coincida tal cual con el catálogo).</span>':'');
 }
 
 /* ---------- Eventos ---------- */
