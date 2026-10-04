@@ -5,13 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Historial de Planta</title>
 <meta name="theme-color" content="#2563eb">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="Historial Planta">
-  <link rel="manifest" href="./manifest.json">
-  <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
-  <link rel="apple-touch-icon" href="./icon-192.png">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root{--bg:#f4f5f8;--card:#fff;--text:#12151a;--muted:#6b7280;--bd:#e5e7ec;--ac:#2563eb;--act:#fff;--chip:#eef2ff;--bad:#dc2626;--ok:#16a34a}
 @media(prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#181b21;--text:#e7e9ee;--muted:#98a0ac;--bd:#272b33;--ac:#4f8dff;--act:#0b0d10;--chip:#1b2237;--bad:#f87171;--ok:#4ade80}}
@@ -62,7 +56,8 @@ details.card>summary{cursor:pointer;list-style:none}details.card>summary::-webki
 <select id="tf"><option value="">Ambos turnos</option><option value="DIA">Día</option><option value="NOCHE">Noche</option></select>
 </div>
 <div class="bar" id="chips"><button data-r="7">7 d</button><button data-r="30" class="on">30 d</button><button data-r="90">90 d</button><button data-r="0">Todo</button>
-<input type="search" id="q" placeholder="Máquina, OP, producto, técnico, falla…"><button id="csv">⬇ CSV</button></div>
+<input type="search" id="q" list="maqs" placeholder="Máquina, OP, producto, técnico, falla…"><datalist id="maqs"></datalist>
+<button id="csv">⬇ CSV</button><button id="xlop" title="Consolida por OP las filas que coincidan con la búsqueda">⬇ Excel por OP</button></div>
 <div class="tabs" id="tabs"><button data-t="res" class="on">Resumen</button><button data-t="tur">Turnos</button><button data-t="int">Intervenciones</button></div>
 <div id="sts" class="m" style="margin-bottom:8px"></div>
 <div id="view"></div>
@@ -116,7 +111,13 @@ async function cargar(){
   turnos=ok.t?tr.value:[];ints=ok.i?ir.value.map(e=>({...e,ft:turnoDe(e)})):[];
   const errs=[];if(!ok.t)errs.push('Turnos: '+tr.reason.message);if(!ok.i)errs.push('Intervenciones: '+ir.reason.message);
   $('sts').innerHTML=errs.length?'<span class="err">'+esc(errs.join(' · '))+'</span>':'';
-  lim=80;render();
+  updateMaqList();lim=80;render();
+}
+function updateMaqList(){
+  const set=new Set();
+  turnos.forEach(r=>(r.filas||[]).forEach(f=>f.maquina&&set.add(f.maquina.trim())));
+  ints.forEach(e=>e.maquina&&set.add(e.maquina.trim()));
+  $('maqs').innerHTML=[...set].sort((a,b)=>a.localeCompare(b,'es')).map(m=>`<option value="${esc(m)}">`).join('');
 }
 
 /* ---------- Filtros y métricas ---------- */
@@ -195,6 +196,71 @@ function csv(){
   a.download='historial_'+tab+'_'+$('desde').value+'_'+$('hasta').value+'.csv';a.click();
 }
 
+/* ---------- Excel consolidado por OP ---------- */
+function exportOP(){
+  const q=$('q').value.trim();
+  if(!q){$('sts').innerHTML='<span class="err">Escribe una OP (o parte de ella) en el buscador antes de exportar.</span>';return}
+  const tf=$('tf').value,ql=q.toLowerCase();
+  const filas=[]; // filas de todos los turnos del rango cuya OP coincide con la búsqueda
+  turnos.forEach(r=>{
+    if(tf&&tipo(r.tipo)!==tf)return;
+    (r.filas||[]).forEach(f=>{ if(String(f.op||'').toLowerCase().includes(ql)) filas.push({...f,fecha:r.fecha,tipo:tipo(r.tipo)}); });
+  });
+  if(!filas.length){$('sts').innerHTML='<span class="err">Ninguna fila del rango tiene una OP que coincida con "'+esc(q)+'".</span>';return}
+
+  // Consolidado por OP + producto
+  const G={};const ordenG=[];
+  filas.forEach(f=>{
+    const k=(f.op||'—')+'||'+(f.producto||'');
+    if(!G[k]){G[k]={op:f.op||'—',producto:f.producto||'—',sap:f.sap||'',total:0,merma:0,turnos:new Set()};ordenG.push(k)}
+    G[k].total+=+f.total||0;G[k].merma+=+f.merma||0;G[k].turnos.add(f.fecha+' '+f.tipo);
+  });
+  const cons=ordenG.map(k=>G[k]).sort((a,b)=>b.total-a.total);
+  const totG=sum(cons,'total'),merG=sum(cons,'merma');
+
+  const wb=XLSX.utils.book_new();
+  const borde={style:'thin',color:{rgb:'FFB9BEC7'}};
+  const BD={top:borde,bottom:borde,left:borde,right:borde};
+  const head=c=>({font:{bold:true,color:{rgb:'FFFFFFFF'}},fill:{fgColor:{rgb:'FF2563EB'}},alignment:{horizontal:c?'center':'left',vertical:'center'},border:BD});
+  const cell=c=>({border:BD,alignment:{horizontal:c?'right':'left'}});
+  const totRow=c=>({font:{bold:true},fill:{fgColor:{rgb:'FFEFF2F7'}},border:BD,alignment:{horizontal:c?'right':'left'}});
+
+  // Hoja 1: consolidado
+  const aoa=[['Consolidado por OP — filtro: "'+q+'"'+(tf?' · Turno '+tf:'')+' · '+fc($('desde').value)+' a '+fc($('hasta').value)],
+    ['OP','Producto','SAP','Total producido','Merma','% merma','N.º turnos']];
+  cons.forEach(g=>aoa.push([g.op,g.producto,g.sap,g.total,g.merma,g.total+g.merma>0?g.merma/(g.total+g.merma):0,g.turnos.size]));
+  aoa.push(['TOTAL','','',totG,merG,totG+merG>0?merG/(totG+merG):0,'']);
+  const ws1=XLSX.utils.aoa_to_sheet(aoa);
+  ws1['!merges']=[{s:{r:0,c:0},e:{r:0,c:6}}];
+  ws1['!cols']=[{wch:14},{wch:38},{wch:12},{wch:16},{wch:12},{wch:10},{wch:11}];
+  ws1['!freeze']={xSplit:0,ySplit:2};
+  ws1.A1.s={font:{bold:true,sz:13,color:{rgb:'FF2563EB'}}};
+  ['A2','B2','C2','D2','E2','F2','G2'].forEach(a=>ws1[a].s=head(a!=='A2'&&a!=='B2'));
+  const lastR=2+cons.length;
+  for(let r=3;r<=lastR+1;r++){
+    const isTot=r===lastR+1;
+    ['A','B','C'].forEach(c=>{const a=c+r;if(ws1[a])ws1[a].s=isTot?totRow(false):cell(false)});
+    ['D','E','G'].forEach(c=>{const a=c+r;if(ws1[a])ws1[a].s=isTot?totRow(true):cell(true)});
+    const fcell=ws1['F'+r];if(fcell){fcell.z='0.0%';fcell.s=isTot?totRow(true):cell(true)}
+    ['D'+r,'E'+r].forEach(a=>{if(ws1[a])ws1[a].z='#,##0'});
+  }
+  XLSX.utils.book_append_sheet(wb,ws1,'Consolidado OP');
+
+  // Hoja 2: detalle
+  const aoa2=[['Fecha','Turno','Máquina','OP','Producto','SAP','Total','Merma','Observaciones']];
+  filas.sort((a,b)=>b.fecha.localeCompare(a.fecha)).forEach(f=>aoa2.push([f.fecha,f.tipo,f.maquina,f.op,f.producto,f.sap||'',+f.total||0,+f.merma||0,f.observaciones||'']));
+  const ws2=XLSX.utils.aoa_to_sheet(aoa2);
+  ws2['!cols']=[{wch:11},{wch:7},{wch:16},{wch:14},{wch:30},{wch:10},{wch:9},{wch:8},{wch:30}];
+  ws2['!freeze']={xSplit:0,ySplit:1};
+  'ABCDEFGHI'.split('').forEach(c=>{const a=c+'1';if(ws2[a])ws2[a].s=head('GH'.includes(c))});
+  for(let r=2;r<=aoa2.length;r++) 'ABCDEFGHI'.split('').forEach(c=>{const a=c+r;if(ws2[a])ws2[a].s=cell('GH'.includes(c))});
+  XLSX.utils.book_append_sheet(wb,ws2,'Detalle');
+
+  const arr=XLSX.write(wb,{bookType:'xlsx',type:'array',cellStyles:true});
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([arr],{type:'application/octet-stream'}));
+  a.download='consolidado_OP_'+q.replace(/[^a-z0-9]+/gi,'_')+'.xlsx';a.click();
+}
+
 /* ---------- Eventos ---------- */
 function rango(d){const h=new Date(),a=new Date();a.setDate(a.getDate()-(d||3650));$('desde').value=iso(a);$('hasta').value=iso(h)}
 function showLogin(){$('login').classList.remove('hidden');$('app').classList.add('hidden')}
@@ -212,6 +278,7 @@ $('tf').onchange=()=>{lim=80;render()};
 $('q').oninput=()=>{lim=80;render()};
 $('tabs').onclick=e=>{const b=e.target.closest('button');if(b){tab=b.dataset.t;lim=80;render()}};
 $('csv').onclick=csv;
+$('xlop').onclick=exportOP;
 $('view').onclick=e=>{
   if(e.target.id==='more'){lim+=80;render()}
   const th=e.target.closest('th[data-k]');
@@ -219,15 +286,5 @@ $('view').onclick=e=>{
 };
 if(ses)showApp();
 </script>
-
-<script>
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js')
-      .catch(err => console.warn('Service Worker:', err));
-  });
-}
-</script>
-
 </body>
 </html>
