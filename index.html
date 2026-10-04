@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Historial de Planta</title>
 <meta name="theme-color" content="#2563eb">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root{--bg:#f4f5f8;--card:#fff;--text:#12151a;--muted:#6b7280;--bd:#e5e7ec;--ac:#2563eb;--act:#fff;--chip:#eef2ff;--bad:#dc2626;--ok:#16a34a}
 @media(prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#181b21;--text:#e7e9ee;--muted:#98a0ac;--bd:#272b33;--ac:#4f8dff;--act:#0b0d10;--chip:#1b2237;--bad:#f87171;--ok:#4ade80}}
@@ -196,7 +195,25 @@ function csv(){
   a.download='historial_'+tab+'_'+$('desde').value+'_'+$('hasta').value+'.csv';a.click();
 }
 
-/* ---------- Excel consolidado por OP ---------- */
+/* ---------- Excel consolidado por OP (mismo formato que Control de Entregas) ---------- */
+function xe(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+const BDX='<Borders>'+['Top','Bottom','Left','Right'].map(q=>'<Border ss:Position="'+q+'" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#B7B7B7"/>').join('')+'</Borders>';
+function est(id,font,fill,al){return '<Style ss:ID="'+id+'">'+font+(fill?'<Interior ss:Color="'+fill+'" ss:Pattern="Solid"/>':'')+'<Alignment ss:Horizontal="'+al+'" ss:Vertical="Center" ss:WrapText="1"/>'+BDX+'</Style>'}
+const BLANCOX='<Font ss:Bold="1" ss:Color="#FFFFFF"/>';
+const ESTILOSX='<Styles><Style ss:ID="sT"><Font ss:Bold="1" ss:Size="14" ss:Color="#FFFFFF"/><Interior ss:Color="#12161F" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/></Style>'
+  +est('sH','<Font ss:Bold="1" ss:Color="#12161F"/>','#F2A93B','Center')+est('sC','','', 'Left')+est('sN','','','Right')+est('sK','','','Center')
+  +est('sM',BLANCOX,'#2563EB','Left')+est('sE','<Font ss:Bold="1"/>','#E6F4EA','Right')+est('sE2','<Font ss:Bold="1"/>','#E6F4EA','Center')
+  +est('sTg',BLANCOX,'#38A169','Right')+est('sTg2',BLANCOX,'#38A169','Center')+'</Styles>';
+function ceX(v,st,num,merge){return '<Cell ss:StyleID="'+st+'"'+(merge?' ss:MergeAcross="'+merge+'"':'')+'><Data ss:Type="'+(num?'Number':'String')+'">'+(num?(v||0):xe(v))+'</Data></Cell>'}
+function filaHX(heads){return '<Row ss:Height="22">'+heads.map(h=>ceX(h,'sH')).join('')+'</Row>'}
+function filaTX(t,n){return '<Row ss:Height="28">'+ceX(t,'sT',false,n)+'</Row>'}
+function filaMX(t,n){return '<Row ss:Height="24">'+ceX(t,'sM',false,n)+'</Row>'}
+function hojaXmlX(nombre,anchos,rows){return '<Worksheet ss:Name="'+nombre+'"><Table ss:DefaultColumnWidth="70">'+anchos.map(w=>'<Column ss:Width="'+w+'"/>').join('')+rows.join('')+'</Table><WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><PageSetup><Layout x:Orientation="Landscape"/></PageSetup></WorksheetOptions></Worksheet>'}
+function descargarXls(xml,nombre){
+  const blob=new Blob(['\ufeff',xml],{type:'application/vnd.ms-excel'});
+  const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=nombre;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(u),4000);
+}
 function exportOP(){
   const q=$('q').value.trim();
   if(!q){$('sts').innerHTML='<span class="err">Escribe una OP (o parte de ella) en el buscador antes de exportar.</span>';return}
@@ -208,57 +225,42 @@ function exportOP(){
   });
   if(!filas.length){$('sts').innerHTML='<span class="err">Ninguna fila del rango tiene una OP que coincida con "'+esc(q)+'".</span>';return}
 
-  // Consolidado por OP + producto
-  const G={};const ordenG=[];
+  // Agrupar por modelo (producto); dentro de cada modelo, por fecha + turno
+  const MOD={};const ordenMod=[];
   filas.forEach(f=>{
-    const k=(f.op||'—')+'||'+(f.producto||'');
-    if(!G[k]){G[k]={op:f.op||'—',producto:f.producto||'—',sap:f.sap||'',total:0,merma:0,turnos:new Set()};ordenG.push(k)}
-    G[k].total+=+f.total||0;G[k].merma+=+f.merma||0;G[k].turnos.add(f.fecha+' '+f.tipo);
+    const mk=f.producto||'(sin producto)';
+    if(!MOD[mk]){MOD[mk]={producto:mk,sap:f.sap||'',total:0,merma:0,dias:{},ordenDias:[],ops:new Set()}}
+    const M=MOD[mk];if(!M.sap&&f.sap)M.sap=f.sap;
+    M.total+=+f.total||0;M.merma+=+f.merma||0;if(f.op)M.ops.add(f.op);
+    const dk=f.fecha+'|'+f.tipo;
+    if(!M.dias[dk]){M.dias[dk]={fecha:f.fecha,turno:f.tipo,total:0,merma:0,maquinas:new Set(),ops:new Set()};M.ordenDias.push(dk)}
+    const D=M.dias[dk];D.total+=+f.total||0;D.merma+=+f.merma||0;if(f.maquina)D.maquinas.add(f.maquina);if(f.op)D.ops.add(f.op);
+    if(!ordenMod.includes(mk))ordenMod.push(mk);
   });
-  const cons=ordenG.map(k=>G[k]).sort((a,b)=>b.total-a.total);
-  const totG=sum(cons,'total'),merG=sum(cons,'merma');
+  const modelos=ordenMod.map(k=>MOD[k]).sort((a,b)=>b.total-a.total);
+  const totG=sum(modelos,'total'),merG=sum(modelos,'merma');
 
-  const wb=XLSX.utils.book_new();
-  const borde={style:'thin',color:{rgb:'FFB9BEC7'}};
-  const BD={top:borde,bottom:borde,left:borde,right:borde};
-  const head=c=>({font:{bold:true,color:{rgb:'FFFFFFFF'}},fill:{fgColor:{rgb:'FF2563EB'}},alignment:{horizontal:c?'center':'left',vertical:'center'},border:BD});
-  const cell=c=>({border:BD,alignment:{horizontal:c?'right':'left'}});
-  const totRow=c=>({font:{bold:true},fill:{fgColor:{rgb:'FFEFF2F7'}},border:BD,alignment:{horizontal:c?'right':'left'}});
+  // Hoja 1: Consolidado por modelo, con fechas de producción y totales
+  const r1=[filaTX('CONSOLIDADO DE PRODUCCIÓN POR OP — filtro: "'+q+'"'+(tf?' · Turno '+tf:'')+' · '+fc($('desde').value)+' a '+fc($('hasta').value),6)];
+  modelos.forEach(M=>{
+    r1.push(filaMX(M.producto+(M.sap?' — SAP '+M.sap:'')+' — OP: '+[...M.ops].join(', ')+'  ·  Total: '+nf(M.total)+' u  ·  Merma: '+nf(M.merma)+' u',6));
+    r1.push(filaHX(['Fecha','Turno','Máquina(s)','OP','Total producido','Merma']));
+    M.ordenDias.sort((a,b)=>a.localeCompare(b)).map(k=>M.dias[k]).forEach(D=>{
+      r1.push('<Row>'+ceX(fc(D.fecha),'sK')+ceX(D.turno==='NOCHE'?'Noche':'Día','sK')+ceX([...D.maquinas].join(', '),'sC')+ceX([...D.ops].join(', '),'sK')+ceX(D.total,'sN',true)+ceX(D.merma,'sN',true)+'</Row>');
+    });
+    r1.push('<Row>'+ceX('Subtotal '+M.producto,'sE2',false,3)+ceX(M.total,'sE',true)+ceX(M.merma,'sE',true)+'</Row>');
+  });
+  r1.push('<Row>'+ceX('TOTAL GENERAL','sTg2',false,3)+ceX(totG,'sTg',true)+ceX(merG,'sTg',true)+'</Row>');
 
-  // Hoja 1: consolidado
-  const aoa=[['Consolidado por OP — filtro: "'+q+'"'+(tf?' · Turno '+tf:'')+' · '+fc($('desde').value)+' a '+fc($('hasta').value)],
-    ['OP','Producto','SAP','Total producido','Merma','% merma','N.º turnos']];
-  cons.forEach(g=>aoa.push([g.op,g.producto,g.sap,g.total,g.merma,g.total+g.merma>0?g.merma/(g.total+g.merma):0,g.turnos.size]));
-  aoa.push(['TOTAL','','',totG,merG,totG+merG>0?merG/(totG+merG):0,'']);
-  const ws1=XLSX.utils.aoa_to_sheet(aoa);
-  ws1['!merges']=[{s:{r:0,c:0},e:{r:0,c:6}}];
-  ws1['!cols']=[{wch:14},{wch:38},{wch:12},{wch:16},{wch:12},{wch:10},{wch:11}];
-  ws1['!freeze']={xSplit:0,ySplit:2};
-  ws1.A1.s={font:{bold:true,sz:13,color:{rgb:'FF2563EB'}}};
-  ['A2','B2','C2','D2','E2','F2','G2'].forEach(a=>ws1[a].s=head(a!=='A2'&&a!=='B2'));
-  const lastR=2+cons.length;
-  for(let r=3;r<=lastR+1;r++){
-    const isTot=r===lastR+1;
-    ['A','B','C'].forEach(c=>{const a=c+r;if(ws1[a])ws1[a].s=isTot?totRow(false):cell(false)});
-    ['D','E','G'].forEach(c=>{const a=c+r;if(ws1[a])ws1[a].s=isTot?totRow(true):cell(true)});
-    const fcell=ws1['F'+r];if(fcell){fcell.z='0.0%';fcell.s=isTot?totRow(true):cell(true)}
-    ['D'+r,'E'+r].forEach(a=>{if(ws1[a])ws1[a].z='#,##0'});
-  }
-  XLSX.utils.book_append_sheet(wb,ws1,'Consolidado OP');
+  // Hoja 2: detalle fila por fila
+  const r2=[filaTX('DETALLE DE PRODUCCIÓN — filtro: "'+q+'"',9),filaHX(['Fecha','Turno','Máquina','OP','Producto','SAP','Total','Merma','Observaciones'])];
+  filas.sort((a,b)=>a.fecha.localeCompare(b.fecha)).forEach(f=>{
+    r2.push('<Row>'+ceX(fc(f.fecha),'sK')+ceX(f.tipo==='NOCHE'?'Noche':'Día','sK')+ceX(f.maquina||'','sC')+ceX(f.op||'','sK')+ceX(f.producto||'','sC')+ceX(f.sap||'','sK')+ceX(+f.total||0,'sN',true)+ceX(+f.merma||0,'sN',true)+ceX(f.observaciones||'','sC')+'</Row>');
+  });
 
-  // Hoja 2: detalle
-  const aoa2=[['Fecha','Turno','Máquina','OP','Producto','SAP','Total','Merma','Observaciones']];
-  filas.sort((a,b)=>b.fecha.localeCompare(a.fecha)).forEach(f=>aoa2.push([f.fecha,f.tipo,f.maquina,f.op,f.producto,f.sap||'',+f.total||0,+f.merma||0,f.observaciones||'']));
-  const ws2=XLSX.utils.aoa_to_sheet(aoa2);
-  ws2['!cols']=[{wch:11},{wch:7},{wch:16},{wch:14},{wch:30},{wch:10},{wch:9},{wch:8},{wch:30}];
-  ws2['!freeze']={xSplit:0,ySplit:1};
-  'ABCDEFGHI'.split('').forEach(c=>{const a=c+'1';if(ws2[a])ws2[a].s=head('GH'.includes(c))});
-  for(let r=2;r<=aoa2.length;r++) 'ABCDEFGHI'.split('').forEach(c=>{const a=c+r;if(ws2[a])ws2[a].s=cell('GH'.includes(c))});
-  XLSX.utils.book_append_sheet(wb,ws2,'Detalle');
-
-  const arr=XLSX.write(wb,{bookType:'xlsx',type:'array',cellStyles:true});
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([arr],{type:'application/octet-stream'}));
-  a.download='consolidado_OP_'+q.replace(/[^a-z0-9]+/gi,'_')+'.xlsx';a.click();
+  const xml='<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet" xmlns:html="http://www.w3.org/TR/REC-html40">'
+    +ESTILOSX+hojaXmlX('Consolidado',[85,70,220,120,110,90],r1)+hojaXmlX('Detalle',[85,70,160,110,260,90,80,80,260],r2)+'</Workbook>';
+  descargarXls(xml,'consolidado_OP_'+q.replace(/[^a-z0-9]+/gi,'_')+'_'+$('desde').value+'_'+$('hasta').value+'.xls');
 }
 
 /* ---------- Eventos ---------- */
