@@ -1,4 +1,4 @@
-const CACHE_NAME = 'historial-planta-v2';
+const CACHE_NAME = 'historial-planta-v3';
 const APP_SHELL = [
   './',
   './index.html',
