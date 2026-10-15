@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Historial de Planta</title>
 <meta name="theme-color" content="#2563eb">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="icon" href="favicon-16.png" sizes="16x16" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Historial">
 <style>
 :root{--bg:#f4f5f8;--card:#fff;--text:#12151a;--muted:#6b7280;--bd:#e5e7ec;--ac:#2563eb;--act:#fff;--chip:#eef2ff;--bad:#dc2626;--ok:#16a34a}
 @media(prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#181b21;--text:#e7e9ee;--muted:#98a0ac;--bd:#272b33;--ac:#4f8dff;--act:#0b0d10;--chip:#1b2237;--bad:#f87171;--ok:#4ade80}}
@@ -382,6 +390,24 @@ $('view').onclick=e=>{
   if(th){const k=th.dataset.k;if(sk===k)sd*=-1;else{sk=k;sd=k==='n'?1:-1}render()}
 };
 if(ses)showApp();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('sw.js').then(reg=>{
+      reg.addEventListener('updatefound',()=>{
+        const nuevo=reg.installing;
+        nuevo&&nuevo.addEventListener('statechange',()=>{
+          if(nuevo.state==='installed'&&navigator.serviceWorker.controller){
+            // Hay una versión nueva cacheada: la activamos en la siguiente carga.
+            nuevo.postMessage('SKIP_WAITING');
+          }
+        });
+      });
+    }).catch(()=>{});
+  });
+  let recargando=false;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(!recargando){recargando=true;location.reload()} });
+}
 </script>
 </body>
 </html>

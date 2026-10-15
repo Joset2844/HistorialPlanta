@@ -1,57 +1,59 @@
-const CACHE_NAME = 'historial-planta-v3-1';
-const APP_SHELL = [
+// Service worker de "Historial de Planta".
+// Sube este número cada vez que publiques cambios en index.html para forzar la actualización.
+const CACHE = 'historial-planta-v1';
+const ARCHIVOS = [
   './',
   './index.html',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
   './icon-maskable-192.png',
-  './icon-maskable-512.png'
+  './icon-maskable-512.png',
+  './apple-touch-icon.png',
+  './favicon-32.png',
+  './favicon-16.png'
 ];
 
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(APP_SHELL))
-      .then(() => self.skipWaiting())
+self.addEventListener('install', (e) => {
+  e.waitUntil(
+    caches.open(CACHE).then((c) => c.addAll(ARCHIVOS)).then(() => self.skipWaiting())
   );
 });
 
-self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(
-        keys
-          .filter(key => key !== CACHE_NAME)
-          .map(key => caches.delete(key))
-      )
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
 });
 
-self.addEventListener('fetch', event => {
-  const request = event.request;
-  const url = new URL(request.url);
+self.addEventListener('message', (e) => {
+  if (e.data === 'SKIP_WAITING') self.skipWaiting();
+});
 
-  // Supabase/API: always use network. Do not cache database responses.
-  if (url.hostname.includes('supabase.co')) return;
+self.addEventListener('fetch', (e) => {
+  const url = new URL(e.request.url);
 
-  // App shell/static files: cache first, then network.
-  if (request.method === 'GET') {
-    event.respondWith(
-      caches.match(request).then(cached => {
-        if (cached) return cached;
+  // Nunca cachear llamadas a Supabase (datos y login siempre deben ir a la red).
+  if (url.hostname.endsWith('.supabase.co')) return;
 
-        return fetch(request).then(response => {
-          if (!response || response.status !== 200 || response.type === 'opaque') {
-            return response;
-          }
+  // Nunca cachear el catálogo de máquinas publicado en Google Sheets (debe poder actualizarse).
+  if (url.hostname.includes('google')) return;
 
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(request, copy));
-          return response;
-        });
-      })
-    );
-  }
+  if (e.request.method !== 'GET') return;
+
+  // App shell: cache-first con actualización en segundo plano.
+  e.respondWith(
+    caches.match(e.request).then((cached) => {
+      const fetchPromise = fetch(e.request).then((resp) => {
+        if (resp && resp.ok) {
+          const copia = resp.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copia));
+        }
+        return resp;
+      }).catch(() => cached);
+      return cached || fetchPromise;
+    })
+  );
 });
